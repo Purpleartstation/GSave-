@@ -35,22 +35,15 @@ class MainActivity : ComponentActivity() {
             val buckets by viewModel.buckets.collectAsStateWithLifecycle()
             val partnerVault by viewModel.partnerVault.collectAsStateWithLifecycle()
             val chatMessages by viewModel.chatMessages.collectAsStateWithLifecycle()
+            val supabaseStatus by viewModel.supabaseStatus.collectAsStateWithLifecycle()
 
             val darkTheme = userPrefs?.darkThemeMode ?: false
 
             GSaveTheme(darkTheme = darkTheme) {
                 if (userPrefs != null && !userPrefs!!.isRegistered) {
                     AuthRegistrationScreen(
-                        onCompleteRegistration = { name, pin ->
-                            viewModel.updatePreferences(
-                                pinCode = pin,
-                                isPinEnabled = true,
-                                googleCalendarSyncEnabled = true,
-                                darkThemeMode = false,
-                                isRegistered = true,
-                                userName = name
-                            )
-                            viewModel.unlockApp(pin)
+                        onCompleteRegistration = { name, email, pin ->
+                            viewModel.registerUserWithSupabase(name, email, pin)
                         }
                     )
                 } else if (!isUnlocked && (userPrefs?.isPinEnabled == true)) {
@@ -112,12 +105,15 @@ class MainActivity : ComponentActivity() {
                                     vault = partnerVault,
                                     onCreateVault = { name -> viewModel.createPartnerVault(name) },
                                     onJoinVault = { code -> viewModel.joinPartnerVault(code) },
+                                    onRefreshStatus = { viewModel.refreshPartnerVaultStatus() },
                                     onSimulatePartnerConnect = { viewModel.simulatePartnerConnected() },
                                     onResetVault = { viewModel.resetPartnerVault() }
                                 )
                                 4 -> SettingsScreen(
                                     userPrefs = userPrefs,
                                     buckets = buckets,
+                                    supabaseStatus = supabaseStatus,
+                                    onSyncSupabase = { viewModel.syncSupabase() },
                                     onUpdatePreferences = { pin, pinEn, cal, dark, reg, name ->
                                         viewModel.updatePreferences(pin, pinEn, cal, dark, reg, name)
                                     },

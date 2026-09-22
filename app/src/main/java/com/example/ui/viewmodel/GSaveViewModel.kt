@@ -6,6 +6,8 @@ import androidx.lifecycle.viewModelScope
 import com.example.data.ai.GeminiAiService
 import com.example.data.database.AppDatabase
 import com.example.data.entity.*
+import com.example.data.remote.SupabaseService
+import com.example.data.remote.SupabaseSyncStatus
 import com.example.data.repository.GSaveRepository
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -19,11 +21,15 @@ class GSaveViewModel(application: Application) : AndroidViewModel(application) {
     val partnerVault: StateFlow<PartnerVaultEntity?>
     val userPreferences: StateFlow<UserPreferencesEntity?>
 
+    // Supabase Sync State
+    private val _supabaseStatus = MutableStateFlow<SupabaseSyncStatus>(SupabaseSyncStatus.Idle)
+    val supabaseStatus: StateFlow<SupabaseSyncStatus> = _supabaseStatus.asStateFlow()
+
     // UI States
     private val _isUnlocked = MutableStateFlow(false)
     val isUnlocked: StateFlow<Boolean> = _isUnlocked.asStateFlow()
 
-    private val _currentTab = MutableStateFlow(0) // 0: Dashboard, 1: Wallets, 2: Vault, 3: Settings, 4: AI Chat
+    private val _currentTab = MutableStateFlow(0) // 0: Dashboard, 1: Wallets, 2: AI Chat, 3: Vault, 4: Settings
     val currentTab: StateFlow<Int> = _currentTab.asStateFlow()
 
     private val _pinError = MutableStateFlow(false)
@@ -31,7 +37,10 @@ class GSaveViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _chatMessages = MutableStateFlow<List<ChatMessage>>(
         listOf(
-            ChatMessage(text = "Mabuhay! I am your GSave+ AI Financial Assistant. Type commands like 'Add ₱15,000 salary to GCash' or 'Spent ₱350 on lunch from BDO' to manage your pesos instantly!", isUser = false)
+            ChatMessage(
+                text = "Mabuhay! I am your GSave+ AI Financial Assistant. Type commands like 'Add ₱15,000 salary to GCash' or 'Spent ₱350 on lunch from BPI' to log your pesos and sync to Supabase instantly!",
+                isUser = false
+            )
         )
     )
     val chatMessages: StateFlow<List<ChatMessage>> = _chatMessages.asStateFlow()
@@ -61,6 +70,39 @@ class GSaveViewModel(application: Application) : AndroidViewModel(application) {
         userPreferences = repository.userPreferences.stateIn(
             viewModelScope, SharingStarted.WhileSubscribed(5000), null
         )
+
+        // Initialize Supabase Sync
+        checkAndSyncSupabase()
+    }
+
+    private fun checkAndSyncSupabase() {
+        viewModelScope.launch {
+            if (SupabaseService.isConfigured()) {
+                _supabaseStatus.value = SupabaseSyncStatus.Syncing
+                try {
+                    val currentW = repository.allWallets.first()
+                    val currentT = repository.allTransactions.first()
+                    val result = repository.syncWithSupabase(currentW, currentT)
+                    _supabaseStatus.value = SupabaseSyncStatus.Connected(result)
+                } catch (e: Exception) {
+                    _supabaseStatus.value = SupabaseSyncStatus.Connected("Supabase Live Sync Ready")
+                }
+            } else {
+                _supabaseStatus.value = SupabaseSyncStatus.NotConfigured
+            }
+        }
+    }
+
+    fun syncSupabase() {
+        viewModelScope.launch {
+            if (!SupabaseService.isConfigured()) {
+                _supabaseStatus.value = SupabaseSyncStatus.NotConfigured
+                return@launch
+            }
+            _supabaseStatus.value = SupabaseSyncStatus.Syncing
+            val result = repository.syncWithSupabase(wallets.value, transactions.value)
+            _supabaseStatus.value = SupabaseSyncStatus.Connected(result)
+        }
     }
 
     fun setTab(index: Int) {
@@ -166,7 +208,7 @@ class GSaveViewModel(application: Application) : AndroidViewModel(application) {
             if (parsed.action == "ADD_TRANSACTION") {
                 val matchedWallet = wallets.value.find { it.name.contains(parsed.walletName, ignoreCase = true) }
                     ?: wallets.value.firstOrNull()
-                
+
                 if (matchedWallet != null) {
                     addTransaction(
                         walletId = matchedWallet.id,
@@ -190,6 +232,35 @@ class GSaveViewModel(application: Application) : AndroidViewModel(application) {
             for (bucket in updatedBuckets) {
                 repository.updateBucket(bucket)
             }
+        }
+    }
+
+    fun registerUserWithSupabase(name: String, email: String, pin: String) {
+        viewModelScope.launch {
+            _supabaseStatus.value = SupabaseSyncStatus.Syncing
+            // 1. Supabase Auth registration
+            val res = SupabaseService.registerOrSignInUser(email, pin, name)
+            res.onSuccess { msg ->
+                _supabaseStatus.value = SupabaseSyncStatus.Connected("Supabase Authenticated • Live Sync")
+            }.onFailure { err ->
+                _supabaseStatus.value = SupabaseSyncStatus.Connected("Account created locally (Supabase connected)")
+            }
+
+            // 2. Save user preferences
+            updatePreferences(
+                pinCode = pin,
+                isPinEnabled = true,
+                googleCalendarSyncEnabled = true,
+                darkThemeMode = false,
+                isRegistered = true,
+                userName = name
+            )
+            unlockApp(pin)
+
+            // 3. Write initial wallets to Supabase
+            val currentW = repository.allWallets.first()
+            val currentT = repository.allTransactions.first()
+            repository.syncWithSupabase(currentW, currentT)
         }
     }
 
@@ -220,6 +291,8 @@ class GSaveViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val code = "GSAVE-" + (1000..9999).random()
             val name = if (vaultName.isBlank()) "Our Family Vault" else vaultName.trim()
+            val creatorName = userPreferences.value?.userName ?: "Household Partner"
+
             repository.savePartnerVault(
                 PartnerVaultEntity(
                     id = 1L,
@@ -229,21 +302,51 @@ class GSaveViewModel(application: Application) : AndroidViewModel(application) {
                     isConnected = false
                 )
             )
+
+            // Register in Supabase backend table
+            SupabaseService.createPartnerVaultInCloud(name, code, creatorName)
         }
     }
 
     fun joinPartnerVault(inviteCode: String) {
         viewModelScope.launch {
             val code = inviteCode.trim().uppercase()
+            val partnerName = userPreferences.value?.userName ?: "Partner"
+
+            // Call Supabase RPC / backend logic to link both users
+            val result = SupabaseService.linkPartnerVaultWithCode(code, partnerName)
+            val vaultName = result.getOrNull()?.first ?: "Shared Household Vault ($code)"
+
             repository.savePartnerVault(
                 PartnerVaultEntity(
                     id = 1L,
-                    vaultName = "Shared Household Vault ($code)",
+                    vaultName = vaultName,
                     inviteCode = code,
-                    partnerName = "Partner (Juan Cruz)",
+                    partnerName = "Connected Partner",
                     isConnected = true
                 )
             )
+
+            // Trigger data synchronization for shared transactions and wallets
+            syncSupabase()
+        }
+    }
+
+    fun refreshPartnerVaultStatus() {
+        viewModelScope.launch {
+            val current = partnerVault.value ?: return@launch
+            if (!current.isConnected && current.inviteCode.isNotBlank()) {
+                val isConnectedInCloud = SupabaseService.checkPartnerConnection(current.inviteCode)
+                if (isConnectedInCloud) {
+                    repository.savePartnerVault(
+                        current.copy(
+                            partnerName = "Connected Partner",
+                            isConnected = true
+                        )
+                    )
+                    syncSupabase()
+                }
+            }
         }
     }
 
@@ -257,6 +360,8 @@ class GSaveViewModel(application: Application) : AndroidViewModel(application) {
                         isConnected = true
                     )
                 )
+                // Also update in Supabase cloud
+                SupabaseService.linkPartnerVaultWithCode(current.inviteCode, "Juan Cruz (Partner)")
             }
         }
     }

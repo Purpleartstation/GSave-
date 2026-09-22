@@ -39,6 +39,7 @@ fun PartnerVaultScreen(
     vault: PartnerVaultEntity?,
     onCreateVault: (String) -> Unit,
     onJoinVault: (String) -> Unit,
+    onRefreshStatus: () -> Unit = {},
     onSimulatePartnerConnect: () -> Unit = {},
     onResetVault: () -> Unit = {}
 ) {
@@ -307,28 +308,55 @@ fun PartnerVaultScreen(
                             }
                         }
 
-                        // Simulation button if not connected yet
+                        // Simulation or Refresh button if not connected yet
                         if (!vault.isConnected) {
-                            OutlinedButton(
-                                onClick = {
-                                    onSimulatePartnerConnect()
-                                    coroutineScope.launch {
-                                        snackbarHostState.showSnackbar("Partner successfully connected to ${vault.vaultName}!")
-                                    }
-                                },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .testTag("simulate_partner_connect_button"),
-                                shape = RoundedCornerShape(12.dp)
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                Icon(
-                                    imageVector = Icons.Default.PersonAdd,
-                                    contentDescription = null,
-                                    tint = GSaveBlue,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text("Simulate Partner Joined (Test Connection)")
+                                OutlinedButton(
+                                    onClick = {
+                                        onRefreshStatus()
+                                        coroutineScope.launch {
+                                            snackbarHostState.showSnackbar("Checking Supabase for partner connection...")
+                                        }
+                                    },
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .testTag("refresh_partner_status_button"),
+                                    shape = RoundedCornerShape(12.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Sync,
+                                        contentDescription = null,
+                                        tint = GSaveBlue,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Check Status", fontSize = 13.sp)
+                                }
+
+                                Button(
+                                    onClick = {
+                                        onSimulatePartnerConnect()
+                                        coroutineScope.launch {
+                                            snackbarHostState.showSnackbar("Partner connected to ${vault.vaultName}!")
+                                        }
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = GSaveGreen),
+                                    modifier = Modifier
+                                        .weight(1.3f)
+                                        .testTag("simulate_partner_connect_button"),
+                                    shape = RoundedCornerShape(12.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.PersonAdd,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Simulate Partner", fontSize = 13.sp)
+                                }
                             }
                         }
 

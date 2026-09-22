@@ -27,12 +27,13 @@ import com.example.ui.theme.GSaveGreen
 
 @Composable
 fun AuthRegistrationScreen(
-    onCompleteRegistration: (String, String) -> Unit // (name, pin)
+    onCompleteRegistration: (String, String, String) -> Unit // (name, email, pin)
 ) {
     var step by remember { mutableStateOf(1) } // 1: Welcome/Auth, 2: Setup PIN
     var name by remember { mutableStateOf("Maria Santos") }
     var email by remember { mutableStateOf("maria.santos@gmail.com") }
     var pin by remember { mutableStateOf("1234") }
+    var isSubmitting by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -164,18 +165,35 @@ fun AuthRegistrationScreen(
 
             Button(
                 onClick = {
-                    if (pin.length == 4) {
-                        onCompleteRegistration(name, pin)
+                    if (pin.length == 4 && !isSubmitting) {
+                        isSubmitting = true
+                        onCompleteRegistration(name, email, pin)
                     }
                 },
+                enabled = !isSubmitting,
                 colors = ButtonDefaults.buttonColors(containerColor = GSaveGreen),
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(50.dp),
                 shape = RoundedCornerShape(12.dp)
             ) {
-                Text("Start Using GSave+", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                if (isSubmitting) {
+                    CircularProgressIndicator(modifier = Modifier.size(20.dp), color = MaterialTheme.colorScheme.onPrimary)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Connecting to Supabase...", fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                } else {
+                    Text("Start Using GSave+", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                }
             }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Text(
+                text = "Protected by Supabase Auth & PostgreSQL Real-time Database",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
+                textAlign = TextAlign.Center
+            )
         }
     }
 }

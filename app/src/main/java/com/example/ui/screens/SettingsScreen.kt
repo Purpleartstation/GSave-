@@ -14,6 +14,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.entity.*
+import com.example.data.remote.SupabaseService
+import com.example.data.remote.SupabaseSyncStatus
 import com.example.ui.theme.GSaveBlue
 import com.example.ui.theme.GSaveGreen
 
@@ -21,6 +23,8 @@ import com.example.ui.theme.GSaveGreen
 fun SettingsScreen(
     userPrefs: UserPreferencesEntity?,
     buckets: List<BucketEntity>,
+    supabaseStatus: SupabaseSyncStatus = SupabaseSyncStatus.Idle,
+    onSyncSupabase: () -> Unit = {},
     onUpdatePreferences: (String, Boolean, Boolean, Boolean, Boolean, String) -> Unit,
     onUpdateBuckets: (List<BucketEntity>) -> Unit,
     onWipeOutData: () -> Unit
@@ -142,6 +146,111 @@ fun SettingsScreen(
                                 onUpdatePreferences(pinCode, pinEnabled, calendarSync, darkMode, true, userName)
                             }
                         )
+                    }
+                }
+            }
+        }
+
+        // Supabase Cloud Database Card
+        item {
+            Card(
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.CloudSync,
+                                contentDescription = "Supabase",
+                                tint = GSaveGreen,
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Supabase Cloud Database", fontWeight = FontWeight.Bold, color = GSaveGreen)
+                        }
+
+                        val isConnected = SupabaseService.isConfigured()
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = if (isConnected) GSaveGreen.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surfaceVariant
+                        ) {
+                            Text(
+                                text = if (isConnected) "Active" else "Not Configured",
+                                color = if (isConnected) GSaveGreen else MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 11.sp,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            )
+                        }
+                    }
+
+                    val hostUrl = SupabaseService.getCleanSupabaseUrl().substringAfter("://").substringBefore("/")
+                    if (hostUrl.isNotBlank()) {
+                        Text(
+                            text = "Supabase Host: $hostUrl",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.Medium,
+                            color = GSaveBlue
+                        )
+                    }
+
+                    Text(
+                        text = "Authentication, wallet balances, partner vault linking, and shared transactions sync with PostgreSQL RLS ('partner_vaults', 'transactions', 'wallets', 'profiles').",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f)
+                    )
+
+                    when (supabaseStatus) {
+                        is SupabaseSyncStatus.Syncing -> {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(16.dp),
+                                    strokeWidth = 2.dp,
+                                    color = GSaveGreen
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Syncing with Supabase...",
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
+                                )
+                            }
+                        }
+                        is SupabaseSyncStatus.Connected -> {
+                            Text(
+                                text = supabaseStatus.message,
+                                fontSize = 12.sp,
+                                color = GSaveGreen,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                        is SupabaseSyncStatus.Error -> {
+                            Text(
+                                text = supabaseStatus.error,
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        }
+                        else -> {}
+                    }
+
+                    OutlinedButton(
+                        onClick = onSyncSupabase,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Icon(imageVector = Icons.Default.Sync, contentDescription = null, tint = GSaveBlue)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Sync Supabase Database Now")
                     }
                 }
             }
