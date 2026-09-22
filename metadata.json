@@ -1,0 +1,6 @@
+{
+  "name": "GSave+",
+  "description": "Financial tracking and shared savings app tailored strictly for Philippine Pesos (₱ / PHP)",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
